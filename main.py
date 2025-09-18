@@ -11,7 +11,7 @@ BINANCE_WS_URL = "wss://stream.binance.com:9443/ws/!bookTicker"
 # Скользящее среднее ордеров для каждого токена
 token_avg_order_size = {}
 ALPHA = 0.1  # коэффициент для скользящего среднего
-LARGE_ORDER_MULTIPLIER = 5  # ордер > 5x среднего считается крупным
+LARGE_ORDER_MULTIPLIER = 2  # ордер > 5x среднего считается крупным
 NOT_FOUND_TIMEOUT = 10  # секунд
 
 last_large_order_time = 0
