@@ -2,96 +2,116 @@ import asyncio
 import json
 import websockets
 from telegram import Bot
+from datetime import datetime
 
-# ====== Настройки ======
-BOT_TOKEN = "8275504974:AAEJblNngby0n-XEEUNn0nVe4y_BxAVEEsw"
-CHAT_ID = 921726824  # твой ID
+# --- Настройки ---
+BOT_TOKEN = "8275504974:AAEJblNngby0n-XEEUNn0nVe4y_BxAVEEsw"  # <-- сюда вставь токен бота
+CHAT_ID = 921726824             # <-- твой ID
 BINANCE_WS_URL = "wss://stream.binance.com:9443/ws/!bookTicker"
+CHECK_LEVELS = 10               # уровни для visible_depth
+CONFIDENCE_THRESHOLD = 0.75
 
-# Скользящее среднее ордеров для каждого токена
-token_avg_order_size = {}
-ALPHA = 0.1  # коэффициент для скользящего среднего
-LARGE_ORDER_MULTIPLIER = 2  # ордер > 5x среднего считается крупным
-NOT_FOUND_TIMEOUT = 10  # секунд
-
-last_large_order_time = 0
-
-# ====== Список токенов для мониторинга ======
-TOKENS = [
-    "SOLUSDT","ETHUSDT","BNBUSDT","ADAUSDT","XRPUSDT","DOTUSDT","MATICUSDT","LTCUSDT",
-    "AVAXUSDT","LINKUSDT","ALGOUSDT","ATOMUSDT","XLMUSDT","VETUSDT","FILUSDT","TRXUSDT",
-    "EOSUSDT","AAVEUSDT","UNIUSDT","SANDUSDT","GRTUSDT","THETAUSDT","EGLDUSDT","FTTUSDT",
-    "NEARUSDT","CHZUSDT","KSMUSDT","CAKEUSDT","BTTUSDT","HBARUSDT","MANAUSDT","ENJUSDT",
-    "ONEUSDT","HOTUSDT","ZILUSDT","WAVESUSDT","LRCUSDT","QTUMUSDT","XEMUSDT","IOTAUSDT",
-    "MKRUSDT","COMPUSDT","SNXUSDT","YFIUSDT","BALUSDT","CRVUSDT","1INCHUSDT","OCEANUSDT",
-    "RUNEUSDT","KAVAUSDT","CELOUSDT","ARUSDT","STMXUSDT","ANKRUSDT"
-]
-
+# --- Telegram бот ---
 bot = Bot(token=BOT_TOKEN)
 
-# ====== Функции ======
-def update_avg_order(symbol, size):
-    if symbol not in token_avg_order_size:
-        token_avg_order_size[symbol] = size
+# --- Данные по токенам ---
+tokens = [
+    "SOLUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "XRPUSDT",
+    "DOTUSDT", "MATICUSDT", "LTCUSDT", "AVAXUSDT", "LINKUSDT",
+]
+
+# --- Состояние ордеров ---
+order_book = {}  # symbol -> {price: {volume, timestamp, cancel_count}}
+ALPHA = 0.1  # скользящее среднее
+LARGE_ORDER_MULTIPLIER = 5
+last_notify_time = 0
+NOT_FOUND_TIMEOUT = 10
+
+# --- Функции ---
+def update_level(symbol, price, volume):
+    now = datetime.utcnow().timestamp()
+    if symbol not in order_book:
+        order_book[symbol] = {}
+    if price not in order_book[symbol]:
+        order_book[symbol][price] = {"volume": volume, "timestamp": now, "cancel_count": 0}
     else:
-        token_avg_order_size[symbol] = (1 - ALPHA) * token_avg_order_size[symbol] + ALPHA * size
+        order_book[symbol][price]["volume"] = (1-ALPHA)*order_book[symbol][price]["volume"] + ALPHA*volume
+        order_book[symbol][price]["timestamp"] = now
 
-def is_large_order(symbol, size):
-    avg = token_avg_order_size.get(symbol, size)
-    return size >= avg * LARGE_ORDER_MULTIPLIER
+def compute_metrics(symbol, price):
+    level = order_book[symbol][price]
+    now = datetime.utcnow().timestamp()
+    hold_time = now - level["timestamp"]
+    volume_at_level = level["volume"]
+    visible_depth = sum([v["volume"] for v in order_book[symbol].values()])
+    relative_depth = volume_at_level / visible_depth if visible_depth > 0 else 0
+    cancel_rate = level["cancel_count"] / (hold_time+0.001)
+    return {
+        "volume": volume_at_level,
+        "hold_time": hold_time,
+        "relative_depth": relative_depth,
+        "cancel_rate": cancel_rate
+    }
 
-async def notify_large_order(symbol, side, size, price):
-    global last_large_order_time
-    last_large_order_time = asyncio.get_event_loop().time()
-    usd_value = size * price
-    msg = f"🔥 Большой ордер!\nТокен: {symbol}\nСторона: {side}\nОбъем: {size}\nЦена: {price}\nПримерная $-стоимость: {usd_value:.2f}$"
+def confidence_score(metrics):
+    w1, w2, w3 = 0.35, 0.25, 0.2
+    score = (metrics["relative_depth"]*w1 +
+             min(metrics["hold_time"]/60,1)*w2 +  # нормируем hold_time до 60s
+             (1 - min(metrics["cancel_rate"],1))*w3)
+    return score
+
+async def notify_large_order(symbol, side, price, metrics):
+    msg = (f"Большой ордер!\nТокен: {symbol}\nСторона: {side}\n"
+           f"Цена: {price}\nОбъем: {metrics['volume']:.3f}\n"
+           f"Время висения: {metrics['hold_time']:.1f}s\n"
+           f"Relative_depth: {metrics['relative_depth']:.2f}\n"
+           f"Cancel_rate: {metrics['cancel_rate']:.2f}")
     await bot.send_message(chat_id=CHAT_ID, text=msg)
 
 async def notify_not_found():
-    msg_lines = ["Пока крупных ордеров не найдено. Текущие средние объемы:"]
-    for token in TOKENS:
-        avg = token_avg_order_size.get(token, 0)
-        msg_lines.append(f"{token}: {avg:.4f}")
-    msg = "\n".join(msg_lines)
+    msg = "Пока крупных ордеров не найдено. Текущие средние объемы:\n"
+    for symbol in tokens:
+        total_volume = sum([v["volume"] for v in order_book.get(symbol, {}).values()])
+        msg += f"{symbol}: {total_volume:.4f}\n"
     await bot.send_message(chat_id=CHAT_ID, text=msg)
 
-# ====== Основная логика ======
+# --- Основной цикл ---
 async def main():
-    global last_large_order_time
+    global last_notify_time
     async with websockets.connect(BINANCE_WS_URL) as ws:
         while True:
             try:
                 msg = await asyncio.wait_for(ws.recv(), timeout=NOT_FOUND_TIMEOUT)
                 data = json.loads(msg)
-
                 symbol = data["s"]
-                if symbol not in TOKENS:
-                    continue  # игнорируем токены вне списка
+                if symbol not in tokens:
+                    continue
 
                 bid_price = float(data["b"])
                 ask_price = float(data["a"])
                 bid_size = float(data["B"])
                 ask_size = float(data["A"])
 
-                # обновляем средние значения
-                update_avg_order(symbol, bid_size)
-                update_avg_order(symbol, ask_size)
+                # обновляем уровни
+                update_level(symbol, bid_price, bid_size)
+                update_level(symbol, ask_price, ask_size)
 
-                # проверяем крупные ордера
-                if is_large_order(symbol, bid_size):
-                    await notify_large_order(symbol, "BUY", bid_size, bid_price)
-                elif is_large_order(symbol, ask_size):
-                    await notify_large_order(symbol, "SELL", ask_size, ask_price)
+                # проверяем метрики
+                bid_metrics = compute_metrics(symbol, bid_price)
+                ask_metrics = compute_metrics(symbol, ask_price)
 
-                # печатаем текущий стакан в консоль для логов
-                print(json.dumps(data, indent=2))
+                if confidence_score(bid_metrics) >= CONFIDENCE_THRESHOLD:
+                    await notify_large_order(symbol, "BUY", bid_price, bid_metrics)
+                    last_notify_time = asyncio.get_event_loop().time()
+                elif confidence_score(ask_metrics) >= CONFIDENCE_THRESHOLD:
+                    await notify_large_order(symbol, "SELL", ask_price, ask_metrics)
+                    last_notify_time = asyncio.get_event_loop().time()
 
             except asyncio.TimeoutError:
-                # если не было больших ордеров в течение NOT_FOUND_TIMEOUT секунд
-                if asyncio.get_event_loop().time() - last_large_order_time >= NOT_FOUND_TIMEOUT:
+                now = asyncio.get_event_loop().time()
+                if now - last_notify_time >= NOT_FOUND_TIMEOUT:
                     await notify_not_found()
-                    last_large_order_time = asyncio.get_event_loop().time()
+                    last_notify_time = now
 
-# ====== Запуск ======
 if __name__ == "__main__":
     asyncio.run(main())
