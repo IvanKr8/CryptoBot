@@ -13,7 +13,7 @@ bot = Bot(token=BOT_TOKEN)
 token_avg_order_size = {}
 ALPHA = 0.1  # коэффициент для скользящего среднего
 LARGE_ORDER_MULTIPLIER = 5  # ордер > 5x среднего считается крупным
-NOT_FOUND_TIMEOUT = 10  # секунд
+NOT_FOUND_TIMEOUT = 10  # секунд без крупных ордеров
 
 last_large_order_time = 0
 
@@ -30,11 +30,24 @@ def is_large_order(symbol, size):
 async def notify_large_order(symbol, side, size, price):
     global last_large_order_time
     last_large_order_time = asyncio.get_event_loop().time()
-    msg = f"Большой ордер!\nТокен: {symbol}\nСторона: {side}\nОбъем: {size}\nЦена: {price}"
+    msg = (
+        f"🚨 Большой ордер!\n"
+        f"Токен: {symbol}\n"
+        f"Сторона: {side}\n"
+        f"Объем: {size}\n"
+        f"Цена: {price}"
+    )
     await bot.send_message(chat_id=CHAT_ID, text=msg)
 
 async def notify_not_found():
-    await bot.send_message(chat_id=CHAT_ID, text="Пока не найдено ничего")
+    if not token_avg_order_size:
+        msg = "Пока крупных ордеров не найдено. Наблюдаемых токенов пока нет."
+    else:
+        lines = ["Пока крупных ордеров не найдено.", "Наблюдаемые токены:"]
+        for symbol, avg_size in token_avg_order_size.items():
+            lines.append(f"{symbol}: средний объем ≈ {avg_size:.4f}")
+        msg = "\n".join(lines)
+    await bot.send_message(chat_id=CHAT_ID, text=msg)
 
 async def main():
     global last_large_order_time
