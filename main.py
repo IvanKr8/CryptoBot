@@ -5,7 +5,7 @@ from telegram import Bot
 
 BOT_TOKEN = "8275504974:AAEJblNngby0n-XEEUNn0nVe4y_BxAVEEsw"
 CHAT_ID = 921726824  # твой ID
-HYPERLIQUID_WS_URL = "wss://api.hyperliquid.xyz/ws"
+HYPERLIQUID_WS_URL = "wss://api.hyperliquid.com/ws"  # пример
 
 bot = Bot(token=BOT_TOKEN)
 
@@ -16,6 +16,7 @@ LARGE_ORDER_MULTIPLIER = 5  # ордер > 5x среднего считаетс�
 NOT_FOUND_TIMEOUT = 10  # секунд
 
 last_large_order_time = 0
+observed_tokens = set()
 
 def update_avg_order(symbol, size):
     if symbol not in token_avg_order_size:
@@ -30,46 +31,36 @@ def is_large_order(symbol, size):
 async def notify_large_order(symbol, side, size, price):
     global last_large_order_time
     last_large_order_time = asyncio.get_event_loop().time()
-    msg = (
-        f"🚨 Большой ордер!\n"
-        f"Токен: {symbol}\n"
-        f"Сторона: {side}\n"
-        f"Объем: {size}\n"
-        f"Цена: {price}"
-    )
+    msg = f"Большой ордер!\nТокен: {symbol}\nСторона: {side}\nОбъем: {size}\nЦена: {price}"
     await bot.send_message(chat_id=CHAT_ID, text=msg)
 
 async def notify_not_found():
-    if not token_avg_order_size:
-        msg = "Пока крупных ордеров не найдено. Наблюдаемых токенов пока нет."
-    else:
-        lines = ["Пока крупных ордеров не найдено.", "Наблюдаемые токены:"]
-        for symbol, avg_size in token_avg_order_size.items():
-            lines.append(f"{symbol}: средний объем ≈ {avg_size:.4f}")
-        msg = "\n".join(lines)
+    tokens_list = ", ".join(observed_tokens) if observed_tokens else "Наблюдаемых токенов пока нет"
+    msg = f"Пока крупных ордеров не найдено.\nТокены, которые проверялись: {tokens_list}"
     await bot.send_message(chat_id=CHAT_ID, text=msg)
 
 async def main():
     global last_large_order_time
     async with websockets.connect(HYPERLIQUID_WS_URL) as ws:
-        # Подписка на данные стакана для всех токенов
-        await ws.send(json.dumps({
-            "method": "subscribe",
-            "subscription": {
-                "type": "l2Book",
-                "coin": "SOL"  # Пример для SOL, добавь другие токены по мере необходимости
-            }
-        }))
         while True:
             try:
-                msg = await asyncio.wait_for(ws.recv(), timeout=1)  # таймаут 1 сек
+                msg = await asyncio.wait_for(ws.recv(), timeout=NOT_FOUND_TIMEOUT)
                 data = json.loads(msg)
 
-                symbol = data["coin"]
-                bid_price = float(data["levels"][0][0]["px"])
-                ask_price = float(data["levels"][1][0]["px"])
-                bid_size = float(data["levels"][0][0]["sz"])
-                ask_size = float(data["levels"][1][0]["sz"])
+                # Печатаем все полученные данные
+                print(json.dumps(data, indent=2, ensure_ascii=False))
+
+                # Пример структуры, нужно подставить реально по HyperLiquid:
+                symbol = data.get("coin") or data.get("symbol")
+                if not symbol:
+                    continue
+
+                bid_price = float(data.get("bid_price", 0))
+                ask_price = float(data.get("ask_price", 0))
+                bid_size = float(data.get("bid_size", 0))
+                ask_size = float(data.get("ask_size", 0))
+
+                observed_tokens.add(symbol)
 
                 # обновляем средние значения
                 update_avg_order(symbol, bid_size)
@@ -82,13 +73,12 @@ async def main():
                     await notify_large_order(symbol, "SELL", ask_size, ask_price)
 
             except asyncio.TimeoutError:
-                pass  # просто ждем следующего сообщения
-
-            # проверка таймера уведомления о пустых ордерах
-            now = asyncio.get_event_loop().time()
-            if now - last_large_order_time >= NOT_FOUND_TIMEOUT:
-                await notify_not_found()
-                last_large_order_time = now
+                if asyncio.get_event_loop().time() - last_large_order_time >= NOT_FOUND_TIMEOUT:
+                    await notify_not_found()
+                    last_large_order_time = asyncio.get_event_loop().time()
+            except Exception as e:
+                print(f"Ошибка: {e}")
+                await asyncio.sleep(1)
 
 if __name__ == "__main__":
     asyncio.run(main())
