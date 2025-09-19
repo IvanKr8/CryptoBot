@@ -1,2 +1,6 @@
-websockets
 python-telegram-bot==20.3
+python-dotenv
+asyncpg
+uvloop
+aiohttp
+pydantic
