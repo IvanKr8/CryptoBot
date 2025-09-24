@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 import os
 import websockets
 import asyncio
+from notifier import log_info
 
 load_dotenv()
 
