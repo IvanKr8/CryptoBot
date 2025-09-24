@@ -27,8 +27,8 @@ async def whales_detector():
                 symbol = data["stream"].split("@")[0].upper()
                 orderbook = data["data"]
 
-                bids = orderbook["bids"]
-                asks = orderbook["asks"]
+                bids = orderbook["b"]
+                asks = orderbook["a"]
 
                 text = (
                     f"📈 Обновление стакана для {symbol}\n"
