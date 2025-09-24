@@ -2,7 +2,6 @@ import os
 import json
 import asyncio
 import websockets
-import aiohttp
 from dotenv import load_dotenv
 from notifier import log_info
 
