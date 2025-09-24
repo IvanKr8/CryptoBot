@@ -70,6 +70,10 @@ async def fetch_whales():
                             confidence = rel_depth
                             if volume_usd >= MIN_USD_VOLUME and rel_depth >= MIN_RELATIVE_DEPTH and confidence>=MIN_CONFIDENCE:
                                 await send_signal(symbol, "SHORT", price, volume_usd, rel_depth, confidence)
+                        
+                        symbol_cache = level_cache.get(symbol.upper(), {})
+                        symbol_cache[price] = {"volume_usd": volume_usd, "timestamp": time.time()}
+                        level_cache[symbol.upper()] = symbol_cache
 
                         await asyncio.sleep(0.1)
 
