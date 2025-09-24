@@ -17,6 +17,25 @@ MIN_CONFIDENCE = float(os.getenv("MIN_CONFIDENCE", 0.8))
 
 level_cache = {}
 
+import time
+
+async def send_periodic_log():
+    while True:
+        try:
+            messages = []
+            for symbol in BINANCE_SYMBOLS:
+                cache = level_cache.get(symbol.upper(), {})
+                total_levels = len(cache)
+                total_volume_usd = sum(lvl["volume_usd"] for lvl in cache.values()) if cache else 0
+                messages.append(
+                    f"{symbol.upper()}: уровней={total_levels}, общ. объем=$ {total_volume_usd:,.0f}"
+                )
+            log_text = "📝 Актуальная статистика по токенам:\n" + "\n".join(messages)
+            await log_info(log_text)
+        except Exception as e:
+            await log_info(f"❌ Ошибка при формировании периодического лога: {e}")
+        await asyncio.sleep(30)
+
 async def fetch_whales():
     streams = "/".join([f"{s}@depth{DEPTH_LEVEL}" for s in BINANCE_SYMBOLS])
     url = f"wss://fstream.binance.com/stream?streams={streams}"
