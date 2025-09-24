@@ -2,6 +2,13 @@ import asyncio
 import websockets
 import json
 from notifier import log_info
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+BINANCE_SYMBOLS = os.getenv("BINANCE_SYMBOLS", "vetusdt,trbusdt").split(",")
+DEPTH_LEVEL = os.getenv("DEPTH_LEVEL", 10)
 
 async def whales_detector():
     streams = "/".join([f"{s}@depth20" for s in BINANCE_SYMBOLS])
