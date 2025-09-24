@@ -1,13 +1,13 @@
 import asyncio
-from detector import whales_detector
+from detector import fetch_whales
 from notifier import log_info, log_error
 
 async def main():
-    await log_info("🚀 Detector бот стартует...")
+    await log_info("🚀 Whale Radar стартует...")
     try:
-        await whales_detector()
+        await fetch_whales()
     except Exception as e:
-        await log_error(f"Бот упал с ошибкой: {str(e)}")
+        await log_error(f"Бот упал: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())
