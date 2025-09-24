@@ -3,6 +3,7 @@ import os
 import websockets
 import asyncio
 from notifier import log_info
+import json
 
 load_dotenv()
 
