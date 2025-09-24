@@ -22,8 +22,8 @@ async def whales_detector():
         async for message in ws:
             try:
                 await log_info(f"📨 raw message: {message[:200]}")
-    await log_info(f"📊 type: {type(message)}")
-    await log_info(f"🔍 json in globals: {'json' in globals()}")
+                await log_info(f"📊 type: {type(message)}")
+                await log_info(f"🔍 json in globals: {'json' in globals()}")
                 data = json.loads(message)
                 symbol = data["stream"].split("@")[0].upper()
                 orderbook = data["data"]
