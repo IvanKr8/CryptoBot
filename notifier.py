@@ -13,12 +13,12 @@ TELEGRAM_LOG_TOKEN = os.getenv("TELEGRAM_LOG_TOKEN")
 TELEGRAM_LOG_CHAT_ID = os.getenv("TELEGRAM_LOG_CHAT_ID")
 bot_logs = Bot(token=TELEGRAM_LOG_TOKEN)
 
-async def send_signal(symbol, side, price_level, volume, rd, confidence):
+async def send_signal(symbol, side, price, volume_usd, rel_depth, confidence):
     msg = (
-        f"🚨 {side} SIGNAL: {symbol.upper()}\n"
-        f"Price: {price_level}\n"
-        f"Volume USD: {volume}\n"
-        f"Relative Depth: {rd:.2f}\n"
+        f"🚨 {side} SIGNAL: {symbol}\n"
+        f"Price: {price}\n"
+        f"Volume USD: {volume_usd:.2f}\n"
+        f"Relative Depth: {rel_depth:.2f}\n"
         f"Confidence: {confidence:.2f}"
     )
     await bot_signals.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg)
